@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en-us">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <title>minisat for Web</title>
+    <style>
+      .emscripten { padding-right: 0; margin-left: auto; margin-right: auto; display: block; }
+      div.emscripten { text-align: center; }      
+      div.emscripten_border { border: 1px solid black; }
+
+      #emscripten_logo {
+        display: inline-block;
+        margin: 0;
+      }
+
+      .spinner {
+        height: 30px;
+        width: 30px;
+        margin: 0;
+        margin-top: 20px;
+        margin-left: 20px;
+        display: inline-block;
+        vertical-align: top;
+
+        -webkit-animation: rotation .8s linear infinite;
+        -moz-animation: rotation .8s linear infinite;
+        -o-animation: rotation .8s linear infinite;
+        animation: rotation 0.8s linear infinite;
+
+        border-left: 5px solid rgb(235, 235, 235);
+        border-right: 5px solid rgb(235, 235, 235);
+        border-bottom: 5px solid rgb(235, 235, 235);
+        border-top: 5px solid rgb(120, 120, 120);
+        
+        border-radius: 100%;
+        background-color: rgb(189, 215, 46);
+      }
+
+      @-webkit-keyframes rotation {
+        from {-webkit-transform: rotate(0deg);}
+        to {-webkit-transform: rotate(360deg);}
+      }
+      @-moz-keyframes rotation {
+        from {-moz-transform: rotate(0deg);}
+        to {-moz-transform: rotate(360deg);}
+      }
+      @-o-keyframes rotation {
+        from {-o-transform: rotate(0deg);}
+        to {-o-transform: rotate(360deg);}
+      }
+      @keyframes rotation {
+        from {transform: rotate(0deg);}
+        to {transform: rotate(360deg);}
+      }
+
+      #status {
+        display: inline-block;
+        vertical-align: top;
+        margin-top: 30px;
+        margin-left: 20px;
+        font-weight: bold;
+        color: rgb(120, 120, 120);
+      }
+
+      #progress {
+        height: 20px;
+        width: 30px;
+      }
+      
+      .container {
+        margin-top: 10px;
+        margin-left: 20px;
+        margin-right: auto;
+        margin-bottom: 20px;
+      }
+      
+      .container textarea {
+        width: 60em;
+      }
+      
+      .container input {
+        display: block;
+      }
+      
+      .label { margin-left: -10px; }
+      
+      .output {
+        padding: 10px;
+        margin-top: 10px;
+        width: 60em;
+        font-family: monospace;
+        outline: 1px solid black;
+        white-space: pre-wrap;
+      }
+      
+      .output .error {
+        color: red;
+      }
+      
+      .info {
+        font-style: italic;
+      }
+    </style>
+  </head>
+  <body>
+
+    <h1>minisat for Web</h1>
+    
+    <div class="spinner" id='spinner'></div>
+    <div class="emscripten" id="status">Downloading...</div>
+
+    <div id="meat" style="display: none;">
+    <div class="container">
+    <div class="label">
+    DIMACS input:
+    </div>
+    <textarea id="dimacs_in" rows="8"></textarea>
+    <input id="solve" type="button" value="Solve"></input>
+    </div>
+    
+    <div class="container">
+    <div class="label">
+    DIMACS output:
+    </div>
+    <div id="dimacs_out" class="output"></div>
+    </div>
+    
+    <div class="container">
+    <div class="label">
+    Diagnostic output:
+    </div>
+    <div id="output" class="output"></div>
+    </div>
+    </div>
+    
+    <div class="info">
+      <a href="https://github.com/niklasso/minisat">minisat</a>, originally
+      by Niklas Sorensson et al.  Built for the Web using <a
+      href="https://github.com/kripken/emscripten">Emscripten</a>.  Ported
+      by <a href="http://www.joshuawise.com">Joshua Wise</a>; <a
+      href="http://github.com/jwise/minisat">source is available</a>.
+    </div>
+
+    <script type='text/javascript'>
+      var statusElement = document.getElementById('status');
+      var spinnerElement = document.getElementById('spinner');
+      var stdoutElement = document.getElementById('output');
+      var inputElement = document.getElementById('dimacs_in');
+      var outputElement = document.getElementById('dimacs_out');
+      
+      function htmlmangle(text) {
+        text = text.replace(/&/g, "&amp;");
+        text = text.replace(/</g, "&lt;");
+        text = text.replace(/>/g, "&gt;"); //<script>, because my text editor gets sad
+        text = text.replace('\n', '<br>', 'g');
+        return text;
+      }
+
+      var Module = {
+        preRun: [],
+        postRun: [],
+        print: function(text) {
+          text = Array.prototype.slice.call(arguments).join(' ') + "\n";
+          text = htmlmangle(text);
+          stdoutElement.innerHTML += text;
+        },
+        printErr: function(text) {
+          text = Array.prototype.slice.call(arguments).join(' ') + "\n";
+          text = htmlmangle(text);
+          stdoutElement.innerHTML += "<span class=\"error\">*** ERROR ***: " + text + "</span>";
+        },
+        setStatus: function(text) {
+          if (!Module.setStatus.last) Module.setStatus.last = { time: Date.now(), text: '' };
+          if (text === Module.setStatus.text) return;
+          var m = text.match(/([^(]+)\((\d+(\.\d+)?)\/(\d+)\)/);
+          var now = Date.now();
+          if (m && now - Date.now() < 30) return; // if this is a progress update, skip it if too soon
+          if (m) {
+            text = m[1];
+            spinnerElement.hidden = false;
+          } else {
+            if (!text) {
+              spinnerElement.style.display = 'none';
+              statusElement.style.display = 'none';
+            }
+          }
+          statusElement.innerHTML = text;
+        },
+        totalDependencies: 0,
+        monitorRunDependencies: function(left) {
+          this.totalDependencies = Math.max(this.totalDependencies, left);
+          Module.setStatus(left ? 'Preparing... (' + (this.totalDependencies-left) + '/' + this.totalDependencies + ')' : 'All downloads complete.');
+        }
+      };
+      Module.setStatus('Downloading...');
+
+      /* minisat bits */
+      var do_solve = function(text) {
+        return "ERROR: minisat not yet loaded";
+      }
+      
+      Module.preRun.push(function () {
+        do_solve = Module.cwrap('solve', 'string', ['string']);
+        document.getElementById('meat').style.display = '';
+      });
+      
+      document.getElementById('solve').addEventListener('click',
+        function() {
+          stdoutElement.innerHTML = "";
+          outputElement.innerHTML = htmlmangle(do_solve(inputElement.value));
+        },
+        false
+      );
+    </script>
+    
+    <script async type="text/javascript" src="minisat.js"></script>
+  </body>
+</html>

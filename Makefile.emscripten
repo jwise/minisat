@@ -1,0 +1,82 @@
+###################################################################################################
+
+.PHONY:	r d p sh cr cd cp csh lr ld lp lsh config all install install-headers install-lib\
+        install-bin clean distclean
+all:	e
+
+## Configurable options ###########################################################################
+
+BUILD_DIR      ?= build
+MINISAT_RELSYM ?= -g
+MINISAT_REL    ?= -O3 -D NDEBUG
+
+## Configurable options end #######################################################################
+
+INSTALL ?= install
+AR = emar
+CXX = emcc
+
+# GNU Standard Install Variables
+exec_prefix ?= $(prefix)
+includedir  ?= $(prefix)/include
+bindir      ?= $(exec_prefix)/bin
+libdir      ?= $(exec_prefix)/lib
+datarootdir ?= $(prefix)/share
+mandir      ?= $(datarootdir)/man
+
+# Target file names
+MINISAT      = minisat.js#       Name of MiniSat main executable.
+MINISAT_CORE = minisat_core#  Name of simplified MiniSat executable (only core solver support).
+MINISAT_SLIB = lib$(MINISAT).a#  Name of MiniSat static library.
+MINISAT_DLIB = lib$(MINISAT).so# Name of MiniSat shared library.
+
+# Shared Library Version
+SOMAJOR=2
+SOMINOR=1
+SORELEASE?=.0#   Declare empty to leave out from library file name.
+
+MINISAT_CXXFLAGS = -I. -D __STDC_LIMIT_MACROS -D __STDC_FORMAT_MACROS -Wall -Wno-parentheses -Wextra
+MINISAT_LDFLAGS  = -O2 -Wall prebuilts/libz.a -s EXPORTED_FUNCTIONS="['_solve']" -s NO_EXIT_RUNTIME=1
+
+ECHO=@echo
+ifeq ($(VERB),)
+VERB=@
+else
+VERB=
+endif
+
+SRCS = $(wildcard minisat/core/*.cc) $(wildcard minisat/simp/*.cc) $(wildcard minisat/utils/*.cc)
+HDRS = $(wildcard minisat/mtl/*.h) $(wildcard minisat/core/*.h) $(wildcard minisat/simp/*.h) $(wildcard minisat/utils/*.h)
+OBJS = $(filter-out %Main.o, $(SRCS:.cc=.o))
+
+e: $(BUILD_DIR)/emscripten/bin/$(MINISAT)
+
+$(BUILD_DIR)/emscripten/bin/$(MINISAT):            $(BUILD_DIR)/emscripten/minisat/core/EmMain.o $(BUILD_DIR)/emscripten/lib/$(MINISAT_SLIB)
+$(BUILD_DIR)/emscripten/bin/$(MINISAT_CORE):       $(BUILD_DIR)/emscripten/minisat/core/EmMain.o $(BUILD_DIR)/emscripten/lib/$(MINISAT_SLIB)
+$(BUILD_DIR)/emscripten/bin/$(MINISAT_CORE):       $(BUILD_DIR)/emscripten/minisat/core/EmMain.o $(BUILD_DIR)/emscripten/lib/$(MINISAT_SLIB)
+$(BUILD_DIR)/emscripten/lib/$(MINISAT_SLIB):       $(foreach o,$(OBJS),$(BUILD_DIR)/emscripten/$(o))
+
+$(BUILD_DIR)/emscripten/%.o:	%.cc
+	$(VERB) mkdir -p $(dir $@)
+	$(CXX) $(MINISAT_CXXFLAGS) $(CXXFLAGS) -c -o $@ $< -MMD -MF $(BUILD_DIR)/emscripten/$*.d
+
+%/lib/$(MINISAT_SLIB):
+	$(VERB) mkdir -p $(dir $@)
+	$(AR) rcs $@ $^
+
+$(BUILD_DIR)/emscripten/bin/$(MINISAT) $(BUILD_DIR)/emscripten/bin/$(MINISAT_CORE):
+	$(VERB) mkdir -p $(dir $@)
+	$(CXX) $^ $(MINISAT_LDFLAGS) $(LDFLAGS) -o $@
+	cp prebuilts/minisat.html $(BUILD_DIR)/emscripten/bin/minisat.html
+
+clean:
+	rm -f $(foreach o, $(SRCS:.cc=.o), $(BUILD_DIR)/emscripten/$o) \
+          $(foreach d, $(SRCS:.cc=.d), $(BUILD_DIR)/emscripten/$d) \
+	  $(BUILD_DIR)/emscripten/bin/$(MINISAT_CORE) $(BUILD_DIR)/emscripten/bin/$(MINISAT) \
+	  $(BUILD_DIR)/emscripten/lib/$(MINISAT_SLIB) $(BUILD_DIR)/emscripten/bin/minisat.html
+
+distclean:	clean
+	rm -f config.mk
+
+## Include generated dependencies
+-include $(foreach s, $(SRCS:.cc=.d), $(BUILD_DIR)/emscripten/$s)
