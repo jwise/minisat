@@ -81,6 +81,11 @@ static void parse_DIMACS(gzFile input_stream, Solver& S, bool strictp = false) {
     StreamBuffer in(input_stream);
     parse_DIMACS_main(in, S, strictp); }
 
+template<class Solver>
+static void parse_DIMACS(const char *s, Solver& S, bool strictp = false) {
+    StreamBuffer in(s);
+    parse_DIMACS_main(in, S, strictp); }
+
 //=================================================================================================
 }
 

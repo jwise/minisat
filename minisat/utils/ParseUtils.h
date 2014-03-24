@@ -23,6 +23,7 @@ OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWA
 
 #include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
 
 #include <zlib.h>
 
@@ -40,20 +41,25 @@ class StreamBuffer {
     unsigned char* buf;
     int            pos;
     int            size;
+    bool           isgz;
 
     enum { buffer_size = 64*1024 };
 
     void assureLookahead() {
+        if (!isgz) return;
         if (pos >= size) {
             pos  = 0;
             size = gzread(in, buf, buffer_size); } }
 
 public:
-    explicit StreamBuffer(gzFile i) : in(i), pos(0), size(0){
+    explicit StreamBuffer(gzFile i) : in(i), pos(0), size(0), isgz(true){
         buf = (unsigned char*)xrealloc(NULL, buffer_size);
         assureLookahead();
     }
-    ~StreamBuffer() { free(buf); }
+    explicit StreamBuffer(const char *s) : in(NULL), buf((unsigned char *)s), pos(0), size(strlen((char *)s)), isgz(false){
+    }
+
+    ~StreamBuffer() { if (isgz) free(buf); }
 
     int  operator *  () const { return (pos >= size) ? EOF : buf[pos]; }
     void operator ++ ()       { pos++; assureLookahead(); }
